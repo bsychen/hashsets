@@ -88,6 +88,8 @@ private:
       locks.emplace_back(mutex);
     }
 
+    if (!Policy()) { return; }
+
     size_t new_size = buckets_.size() * kCountResize;
 
     std::vector<Bucket> new_buckets(new_size, Bucket());
@@ -111,7 +113,7 @@ private:
   }
 
   typename Bucket::const_iterator GetIndex(const Bucket &list,
-                                             const T &item) const {
+                                           const T &item) const {
     return std::find(list.begin(), list.end(), item);
   }
 };

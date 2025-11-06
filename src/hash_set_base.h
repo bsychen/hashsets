@@ -3,9 +3,8 @@
 
 #include <cstddef>
 
-template <typename T>
-class HashSetBase {
- public:
+template <typename T> class HashSetBase {
+public:
   virtual ~HashSetBase() = default;
 
   // Adds |elem| to the hash set. Returns true if |elem| was absent, and false
@@ -23,4 +22,4 @@ class HashSetBase {
   [[nodiscard]] virtual size_t Size() const = 0;
 };
 
-#endif  // HASH_SET_BASE_H
+#endif // HASH_SET_BASE_H

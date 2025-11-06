@@ -12,4 +12,4 @@ void Placeholder() {
   (void)hs.Contains(1);
 }
 
-}  // namespace check_striped
+} // namespace check_striped

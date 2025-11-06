@@ -5,9 +5,8 @@
 
 #include "src/hash_set_base.h"
 
-template <typename T>
-class HashSetRefinable : public HashSetBase<T> {
- public:
+template <typename T> class HashSetRefinable : public HashSetBase<T> {
+public:
   explicit HashSetRefinable(size_t /*initial_capacity*/) {}
 
   bool Add(T /*elem*/) final {
@@ -31,4 +30,4 @@ class HashSetRefinable : public HashSetBase<T> {
   }
 };
 
-#endif  // HASH_SET_REFINABLE_H
+#endif // HASH_SET_REFINABLE_H

@@ -65,7 +65,7 @@ public:
   }
 
   size_t Size() const override { 
-    return size_.load(); 
+    return size_.load(std::memory_order_relaxed); 
   }
 
 private:

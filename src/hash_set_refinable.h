@@ -7,6 +7,7 @@
 #include <functional>
 #include <mutex>    
 #include <vector>
+#include <memory>
 
 #include "src/hash_set_base.h"
 
@@ -17,10 +18,10 @@ template <typename T> class HashSetRefinable : public HashSetBase<T> {
 
 public:
   explicit HashSetRefinable(size_t initial_buckets = 16) 
-    : bucket_count_(initial_buckets), 
-      buckets_(initial_buckets), 
-      mutexes_(initial_buckets) { 
+  : bucket_count_(initial_buckets),
+    buckets_(initial_buckets) {
     assert(initial_buckets > 0);
+    lock_array_ = std::make_shared<std::vector<std::mutex>>(initial_buckets);
   }
 
   bool Add(T elem) override {
@@ -71,7 +72,7 @@ private:
   std::atomic<bool> resizing_{false};
 
   std::vector<Bucket> buckets_;
-  std::vector<std::mutex> mutexes_;
+  std::shared_ptr<std::vector<std::mutex>> lock_array_;
 
   bool Policy() const {
     return static_cast<double>(size_.load(std::memory_order_relaxed)) / 
@@ -79,25 +80,33 @@ private:
            > kResizeThreshold;
   }
 
-  std::unique_lock<std::mutex> Acquire(const T& mutex) {
+  std::unique_lock<std::mutex> Acquire(const T& key) {
     for (;;) {
-        while (resizing_.load(std::memory_order_acquire)) {
-            // wait out resize
-        }
+      // wait out any ongoing resize
+      while (resizing_.load(std::memory_order_acquire)) {
         
-        auto& locks = mutexes_; 
-        std::unique_lock<std::mutex> lock(locks[std::hash<T>()(mutex) % locks.size()]);
-        
-        if (!resizing_.load(std::memory_order_acquire)) {
-            return lock;
-        }
+      }
+
+      auto locks = std::atomic_load_explicit(&lock_array_,
+                                            std::memory_order_acquire);
+      size_t idx = std::hash<T>()(key) % locks->size();
+      std::unique_lock<std::mutex> lock((*locks)[idx]);
+
+      // if a resize did not start after we grabbed the lock, we’re good
+      if (!resizing_.load(std::memory_order_acquire)) {
+        return lock;
+      }
+      // else: a resize started after we locked; lock is released here (RAII),
+      // and we retry
     }
   }
 
   void Quiesce() {
+    auto locks = std::atomic_load_explicit(&lock_array_,
+                                          std::memory_order_acquire);
     for (;;) {
       bool all_free = true;
-      for (auto &m : mutexes_) {
+      for (auto &m : *locks) {
         if (m.try_lock()) {
           m.unlock();
         } else {
@@ -112,29 +121,31 @@ private:
     bool expected = false;
     if (!resizing_.compare_exchange_strong(expected, true,
                                            std::memory_order_acq_rel)) {
-      // someone else is resizing
       return;
     }
 
-    if (!Policy()) { 
+    if (!Policy()) {
       resizing_.store(false, std::memory_order_release);
-      return; 
+      return;
     }
 
     Quiesce();
 
     size_t new_size = buckets_.size() * kCountResize;
 
-    std::vector<Bucket> new_buckets(new_size, Bucket());
+    std::vector<Bucket> new_buckets(new_size);
     for (const auto &bucket : buckets_) {
       for (const auto &elem : bucket) {
         new_buckets[std::hash<T>()(elem) % new_size].push_back(elem);
       }
     }
-
     buckets_ = std::move(new_buckets);
-    mutexes_ = std::vector<std::mutex>(new_size);
     bucket_count_.store(new_size, std::memory_order_relaxed);
+
+    auto new_locks = std::make_shared<std::vector<std::mutex>>(new_size);
+    std::atomic_store_explicit(&lock_array_, new_locks,
+                              std::memory_order_release);
+
     resizing_.store(false, std::memory_order_release);
   }
 
@@ -143,7 +154,10 @@ private:
   }
 
   std::mutex& GetBucketMutex(const T &elem) {
-    return mutexes_[std::hash<T>()(elem) % mutexes_.size()];
+    auto locks = std::atomic_load_explicit(&lock_array_,
+                                           std::memory_order_acquire);
+    size_t idx = std::hash<T>()(elem) % locks->size();
+    return (*locks)[idx];
   }
 
   typename Bucket::const_iterator GetIndex(const Bucket &list,

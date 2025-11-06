@@ -41,4 +41,4 @@ void Placeholder() {
   }
 }
 
-}  // namespace check_all
+} // namespace check_all

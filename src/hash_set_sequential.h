@@ -1,6 +1,7 @@
 #ifndef HASH_SET_SEQUENTIAL_H
 #define HASH_SET_SEQUENTIAL_H
 
+#include <algorithm>
 #include <cassert>
 #include <functional>
 #include <vector>
@@ -15,6 +16,7 @@ template <typename T> class HashSetSequential : public HashSetBase<T> {
 
 public:
   explicit HashSetSequential(size_t initial_buckets = 16) {
+    assert(initial_buckets > 0);
     buckets_ = std::vector<bucket_t>(initial_buckets, bucket_t());
   }
 
@@ -29,7 +31,7 @@ public:
     }
 
     // Resize if load factor exceeded
-    if (size_ + 1 >= kResizeThreshold * buckets_.size()) {
+    if (size_ > kResizeThreshold * buckets_.size()) {
       Resize();
       bucket = &GetBucket(elem);
     }

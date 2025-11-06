@@ -2,8 +2,8 @@
 
 namespace benchmark {
 
-void ThreadBody(HashSetBase<int>& hash_set, size_t chunk_size, size_t id,
-                size_t& max_observed_size) {
+void ThreadBody(HashSetBase<int> &hash_set, size_t chunk_size, size_t id,
+                size_t &max_observed_size) {
   max_observed_size = 0;
   for (size_t k = 0; k < chunk_size * 2; k++) {
     int elem = static_cast<int>(id * chunk_size + k);
@@ -28,4 +28,4 @@ void ThreadBody(HashSetBase<int>& hash_set, size_t chunk_size, size_t id,
   }
 }
 
-}  // namespace benchmark
+} // namespace benchmark

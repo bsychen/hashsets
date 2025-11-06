@@ -12,11 +12,10 @@
 
 namespace benchmark {
 
-void ThreadBody(HashSetBase<int>& hash_set, size_t chunk_size, size_t id,
-                size_t& max_observed_size);
+void ThreadBody(HashSetBase<int> &hash_set, size_t chunk_size, size_t id,
+                size_t &max_observed_size);
 
-template <typename HashSetType>
-int RunBenchmark(int argc, char** argv) {
+template <typename HashSetType> int RunBenchmark(int argc, char **argv) {
   if (argc != 4) {
     std::cerr << "Usage: " << argv[0]
               << " num_threads initial_capacity chunk_size" << std::endl;
@@ -42,7 +41,7 @@ int RunBenchmark(int argc, char** argv) {
     threads.emplace_back(std::thread(ThreadBody, std::ref(hash_set), chunk_size,
                                      i, std::ref(max_observed_sizes.at(i))));
   }
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
   auto end_time = std::chrono::high_resolution_clock::now();
@@ -72,6 +71,6 @@ int RunBenchmark(int argc, char** argv) {
   return 0;
 }
 
-}  // namespace benchmark
+} // namespace benchmark
 
-#endif  // BENCHMARK_H
+#endif // BENCHMARK_H

@@ -139,9 +139,10 @@ private:
         new_buckets[std::hash<T>()(elem) % new_size].push_back(elem);
       }
     }
+    
     buckets_ = std::move(new_buckets);
     bucket_count_.store(new_size, std::memory_order_relaxed);
-
+    
     auto new_locks = std::make_shared<std::vector<std::mutex>>(new_size);
     std::atomic_store_explicit(&lock_array_, new_locks,
                               std::memory_order_release);
@@ -150,13 +151,13 @@ private:
   }
 
   Bucket& GetBucket(const T &elem) {
-    return buckets_[std::hash<T>()(elem) % buckets_.size()];
+    return buckets_[std::hash<T>()(elem) % bucket_count_.load(std::memory_order_acquire)];
   }
 
   std::mutex& GetBucketMutex(const T &elem) {
     auto locks = std::atomic_load_explicit(&lock_array_,
                                            std::memory_order_acquire);
-    size_t idx = std::hash<T>()(elem) % locks->size();
+    size_t idx = std::hash<T>()(elem) % bucket_count_.load(std::memory_order_acquire);
     return (*locks)[idx];
   }
 

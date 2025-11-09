@@ -8,6 +8,7 @@
 #include <mutex>
 #include <vector>
 #include <memory>
+#include <thread>
 
 #include "src/hash_set_base.h"
 
@@ -114,12 +115,14 @@ private:
     for (;;) {
       bool all_free = true;
       for (auto &m : *locks) {
-        if (m.try_lock()) {
-          m.unlock();
-        } else {
+        if (!m.try_lock()) {
           all_free = false;
+          std::this_thread::yield();
+          break;
         }
+        m.unlock();
       }
+
       if (all_free) break;
     }
   }

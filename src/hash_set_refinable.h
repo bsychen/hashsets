@@ -11,6 +11,12 @@
 
 #include "src/hash_set_base.h"
 
+// Hold lock and index to avoid recalculations
+struct IndexedLock {
+  std::unique_lock<std::mutex> lock;
+  size_t idx;
+};
+
 template <typename T>
 class HashSetRefinable : public HashSetBase<T> {
   using Bucket = std::vector<T>;
@@ -30,9 +36,9 @@ public:
       Resize();
     }
 
-    std::unique_lock<std::mutex> lock = Acquire(elem);
+    IndexedLock acquired = Acquire(elem);
 
-    Bucket& bucket = GetBucket(elem);
+    Bucket& bucket = (*buckets_)[acquired.idx];
     if (GetIndex(bucket, elem) != bucket.end()) {
       return false;
     }
@@ -43,9 +49,9 @@ public:
   }
 
   bool Remove(T elem) override {
-    std::unique_lock<std::mutex> lock = Acquire(elem);
+    IndexedLock acquired = Acquire(elem);
 
-    Bucket& bucket = GetBucket(elem);
+    Bucket& bucket = (*buckets_)[acquired.idx];
     auto it = GetIndex(bucket, elem);
     if (it != bucket.end()) {
       bucket.erase(it);
@@ -56,8 +62,8 @@ public:
   }
 
   bool Contains(T elem) override {
-    std::unique_lock<std::mutex> lock = Acquire(elem);
-    auto& bucket = GetBucket(elem);
+    IndexedLock acquired = Acquire(elem);
+    auto& bucket = (*buckets_)[acquired.idx];
     return GetIndex(bucket, elem) != bucket.end();
   }
 
@@ -80,7 +86,7 @@ private:
            kResizeThreshold;
   }
 
-  std::unique_lock<std::mutex> Acquire(const T& key) {
+  IndexedLock Acquire(const T& key) {
     for (;;) {
       // wait out any ongoing resize
       while (resizing_.load(std::memory_order_acquire)) {
@@ -93,10 +99,10 @@ private:
       size_t idx = std::hash<T>()(key) % locks->size();
       std::unique_lock<std::mutex> lock((*locks)[idx]);
 
-      // if a resize did not start after we grabbed the lock, we’re good
+      // if a resize did not start after we grabbed the lock, we're good
       if (!resizing_.load(std::memory_order_acquire) &&
           gen == generation_.load(std::memory_order_acquire)) {
-        return lock;
+        return IndexedLock{std::move(lock), idx};
       }
       // else: a resize started after we locked; lock is released here (RAII),
       // and we retry
@@ -148,10 +154,6 @@ private:
 
     generation_.fetch_add(1, std::memory_order_release);
     resizing_.store(false, std::memory_order_release);
-  }
-
-  Bucket& GetBucket(const T &elem) {
-    return (*buckets_)[std::hash<T>()(elem) % bucket_count_.load(std::memory_order_acquire)];
   }
 
   typename Bucket::const_iterator GetIndex(const Bucket& list, const T& item) const {

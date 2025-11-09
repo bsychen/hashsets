@@ -8,7 +8,6 @@
 #include <mutex>
 #include <vector>
 #include <memory>
-#include <thread>
 
 #include "src/hash_set_base.h"
 
@@ -45,7 +44,7 @@ public:
     }
 
     bucket.push_back(elem);
-    size_.fetch_add(1, std::memory_order_release);
+    size_.fetch_add(1, std::memory_order_relaxed);
     return true;
   }
 
@@ -56,7 +55,7 @@ public:
     auto it = GetIndex(bucket, elem);
     if (it != bucket.end()) {
       bucket.erase(it);
-      size_.fetch_sub(1, std::memory_order_release);
+      size_.fetch_sub(1, std::memory_order_relaxed);
       return true;
     }
     return false;
@@ -76,7 +75,7 @@ private:
   std::atomic<size_t> size_{0};
   std::atomic<size_t> bucket_count_{0};
   std::atomic<bool> resizing_{false};
-  std::atomic<size_t> generation_{0};
+  std::atomic<size_t> resize_counter_{0};
 
   std::shared_ptr<std::vector<Bucket>> buckets_;
   std::shared_ptr<std::vector<std::mutex>> lock_array_;
@@ -94,7 +93,7 @@ private:
 
       }
 
-      size_t gen = generation_.load(std::memory_order_acquire);
+      size_t pre_count = resize_counter_.load(std::memory_order_acquire);
       auto locks = std::atomic_load_explicit(&lock_array_,
                                             std::memory_order_acquire);
       size_t idx = std::hash<T>()(key) % locks->size();
@@ -102,7 +101,7 @@ private:
 
       // if a resize did not start after we grabbed the lock, we're good
       if (!resizing_.load(std::memory_order_acquire) &&
-          gen == generation_.load(std::memory_order_acquire)) {
+          pre_count == resize_counter_.load(std::memory_order_acquire)) {
         return IndexedLock{std::move(lock), idx};
       }
       // else: a resize started after we locked; lock is released here (RAII),
@@ -117,7 +116,6 @@ private:
       for (auto &m : *locks) {
         if (!m.try_lock()) {
           all_free = false;
-          std::this_thread::yield();
           break;
         }
         m.unlock();
@@ -155,7 +153,7 @@ private:
     auto new_locks = std::make_shared<std::vector<std::mutex>>(new_size);
     std::atomic_store_explicit(&lock_array_, new_locks, std::memory_order_release);
 
-    generation_.fetch_add(1, std::memory_order_release);
+    resize_counter_.fetch_add(1, std::memory_order_release);
     resizing_.store(false, std::memory_order_release);
   }
 

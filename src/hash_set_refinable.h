@@ -5,36 +5,36 @@
 #include <atomic>
 #include <cassert>
 #include <functional>
-#include <mutex>    
+#include <mutex>
 #include <vector>
 #include <memory>
 
 #include "src/hash_set_base.h"
 
-template <typename T> class HashSetRefinable : public HashSetBase<T> {
+template <typename T>
+class HashSetRefinable : public HashSetBase<T> {
   using Bucket = std::vector<T>;
   static constexpr double kResizeThreshold = 0.75;
   static constexpr size_t kCountResize = 2;
 
 public:
-  explicit HashSetRefinable(size_t initial_buckets = 16) 
-  : bucket_count_(initial_buckets),
-    buckets_(initial_buckets) {
+  explicit HashSetRefinable(size_t initial_buckets = 16)
+      : bucket_count_(initial_buckets) {
     assert(initial_buckets > 0);
+    buckets_    = std::make_shared<std::vector<Bucket>>(initial_buckets);
     lock_array_ = std::make_shared<std::vector<std::mutex>>(initial_buckets);
   }
 
   bool Add(T elem) override {
     if (Policy()) {
-        Resize();
+      Resize();
     }
 
     std::unique_lock<std::mutex> lock = Acquire(elem);
 
     Bucket& bucket = GetBucket(elem);
-
     if (GetIndex(bucket, elem) != bucket.end()) {
-        return false;
+      return false;
     }
 
     bucket.push_back(elem);
@@ -57,7 +57,6 @@ public:
 
   bool Contains(T elem) override {
     std::unique_lock<std::mutex> lock = Acquire(elem);
-
     auto& bucket = GetBucket(elem);
     return GetIndex(bucket, elem) != bucket.end();
   }
@@ -70,30 +69,33 @@ private:
   std::atomic<size_t> size_{0};
   std::atomic<size_t> bucket_count_{0};
   std::atomic<bool> resizing_{false};
+  std::atomic<size_t> generation_{0};
 
-  std::vector<Bucket> buckets_;
+  std::shared_ptr<std::vector<Bucket>> buckets_;
   std::shared_ptr<std::vector<std::mutex>> lock_array_;
 
   bool Policy() const {
-    return static_cast<double>(size_.load(std::memory_order_relaxed)) / 
-           static_cast<double>(bucket_count_.load(std::memory_order_relaxed)) 
-           > kResizeThreshold;
+    return static_cast<double>(size_.load(std::memory_order_relaxed)) /
+               static_cast<double>(bucket_count_.load(std::memory_order_relaxed)) >
+           kResizeThreshold;
   }
 
   std::unique_lock<std::mutex> Acquire(const T& key) {
     for (;;) {
       // wait out any ongoing resize
       while (resizing_.load(std::memory_order_acquire)) {
-        
+
       }
 
+      size_t gen = generation_.load(std::memory_order_acquire);
       auto locks = std::atomic_load_explicit(&lock_array_,
                                             std::memory_order_acquire);
       size_t idx = std::hash<T>()(key) % locks->size();
       std::unique_lock<std::mutex> lock((*locks)[idx]);
 
       // if a resize did not start after we grabbed the lock, we’re good
-      if (!resizing_.load(std::memory_order_acquire)) {
+      if (!resizing_.load(std::memory_order_acquire) &&
+          gen == generation_.load(std::memory_order_acquire)) {
         return lock;
       }
       // else: a resize started after we locked; lock is released here (RAII),
@@ -102,8 +104,7 @@ private:
   }
 
   void Quiesce() {
-    auto locks = std::atomic_load_explicit(&lock_array_,
-                                          std::memory_order_acquire);
+    auto locks = std::atomic_load_explicit(&lock_array_, std::memory_order_acquire);
     for (;;) {
       bool all_free = true;
       for (auto &m : *locks) {
@@ -119,8 +120,7 @@ private:
 
   void Resize() {
     bool expected = false;
-    if (!resizing_.compare_exchange_strong(expected, true,
-                                           std::memory_order_acq_rel)) {
+    if (!resizing_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
       return;
     }
 
@@ -131,38 +131,30 @@ private:
 
     Quiesce();
 
-    size_t new_size = buckets_.size() * kCountResize;
+    size_t new_size = (*buckets_).size() * kCountResize;
 
-    std::vector<Bucket> new_buckets(new_size);
-    for (const auto &bucket : buckets_) {
-      for (const auto &elem : bucket) {
-        new_buckets[std::hash<T>()(elem) % new_size].push_back(elem);
+    auto new_buckets = std::make_shared<std::vector<Bucket>>(new_size);
+    for (const auto& bucket : *buckets_) {
+      for (const auto& elem : bucket) {
+        (*new_buckets)[std::hash<T>()(elem) % new_size].push_back(elem);
       }
     }
-    
-    buckets_ = std::move(new_buckets);
-    bucket_count_.store(new_size, std::memory_order_relaxed);
-    
-    auto new_locks = std::make_shared<std::vector<std::mutex>>(new_size);
-    std::atomic_store_explicit(&lock_array_, new_locks,
-                              std::memory_order_release);
 
+    std::atomic_store_explicit(&buckets_, new_buckets, std::memory_order_release);
+    bucket_count_.store(new_size, std::memory_order_relaxed);
+
+    auto new_locks = std::make_shared<std::vector<std::mutex>>(new_size);
+    std::atomic_store_explicit(&lock_array_, new_locks, std::memory_order_release);
+
+    generation_.fetch_add(1, std::memory_order_release);
     resizing_.store(false, std::memory_order_release);
   }
 
   Bucket& GetBucket(const T &elem) {
-    return buckets_[std::hash<T>()(elem) % bucket_count_.load(std::memory_order_acquire)];
+    return (*buckets_)[std::hash<T>()(elem) % bucket_count_.load(std::memory_order_acquire)];
   }
 
-  std::mutex& GetBucketMutex(const T &elem) {
-    auto locks = std::atomic_load_explicit(&lock_array_,
-                                           std::memory_order_acquire);
-    size_t idx = std::hash<T>()(elem) % bucket_count_.load(std::memory_order_acquire);
-    return (*locks)[idx];
-  }
-
-  typename Bucket::const_iterator GetIndex(const Bucket &list,
-                                           const T &item) const {
+  typename Bucket::const_iterator GetIndex(const Bucket& list, const T& item) const {
     return std::find(list.begin(), list.end(), item);
   }
 };

@@ -38,7 +38,7 @@ public:
     }
 
     bucket.push_back(elem);
-    ++size_;
+    size_.fetch_add(1, std::memory_order_relaxed);
     return true;
   }
 
@@ -50,7 +50,7 @@ public:
     auto it = GetIndex(bucket, elem);
     if (it != bucket.end()) {
       bucket.erase(it);
-      --size_;
+      size_.fetch_sub(1, std::memory_order_relaxed);
       return true;
     }
     return false;

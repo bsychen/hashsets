@@ -31,7 +31,10 @@ public:
     }
 
     // Resize if load factor exceeded
-    if (Policy()) { Resize(); bucket = &GetBucket(elem); }
+    if (Policy()) {
+      Resize();
+      bucket = &GetBucket(elem);
+    }
 
     // Add element
     bucket->push_back(elem);
@@ -65,9 +68,7 @@ private:
   size_t size_ = 0;
   std::vector<Bucket> buckets_;
 
-  bool Policy() const {
-    return size_ > buckets_.size() * kResizeThreshold;
-  }
+  bool Policy() const { return size_ > buckets_.size() * kResizeThreshold; }
 
   // Redistributes the elements in the hash set into a larger number of buckets.
   void Resize() {
@@ -90,7 +91,7 @@ private:
 
   // Gets the index of an item in a list
   typename Bucket::const_iterator GetIndex(const Bucket &list,
-                                             const T &item) const {
+                                           const T &item) const {
     return std::find(list.begin(), list.end(), item);
   }
 };

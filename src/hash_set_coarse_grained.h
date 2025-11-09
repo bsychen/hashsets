@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cassert>
 #include <functional>
-#include <mutex>    
+#include <mutex>
 #include <vector>
 
 #include "src/hash_set_base.h"
@@ -23,11 +23,14 @@ public:
   bool Add(T elem) override {
     std::scoped_lock<std::mutex> lock(mutex_);
 
+    if (Policy()) {
+      Resize();
+    }
+
     Bucket *bucket = &GetBucket(elem);
-
-    if (GetIndex(*bucket, elem) != bucket->end()) { return false; }
-
-    if (Policy()) { Resize(); bucket = &GetBucket(elem); }
+    if (GetIndex(*bucket, elem) != bucket->end()) {
+      return false;
+    }
 
     bucket->push_back(elem);
     ++size_;
@@ -36,7 +39,7 @@ public:
 
   bool Remove(T elem) override {
     std::scoped_lock<std::mutex> lock(mutex_);
-    
+
     Bucket &bucket = GetBucket(elem);
     auto it = GetIndex(bucket, elem);
     if (it != bucket.end()) {
@@ -53,9 +56,9 @@ public:
     return GetIndex(bucket, elem) != bucket.end();
   }
 
-  size_t Size() const override { 
+  size_t Size() const override {
     std::scoped_lock<std::mutex> lock(mutex_);
-    return size_; 
+    return size_;
   }
 
 private:
@@ -64,7 +67,8 @@ private:
   std::vector<Bucket> buckets_;
 
   bool Policy() const {
-    return static_cast<double>(size_) / static_cast<double>(buckets_.size()) > kResizeThreshold;
+    return kResizeThreshold < static_cast<double>(size_ + 1) /
+                                  static_cast<double>(buckets_.size());
   }
 
   void Resize() {
@@ -85,9 +89,9 @@ private:
   }
 
   typename Bucket::const_iterator GetIndex(const Bucket &list,
-                                             const T &item) const {
+                                           const T &item) const {
     return std::find(list.begin(), list.end(), item);
   }
 };
 
-#endif  // HASH_SET_COARSE_GRAINED_H
+#endif // HASH_SET_COARSE_GRAINED_H

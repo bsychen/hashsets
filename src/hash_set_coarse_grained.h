@@ -9,7 +9,7 @@
 
 #include "src/hash_set_base.h"
 
-// A coarse-grained lock hash set implementation
+// A coarse-grained lock hash set as in the "Art of Multiprocessor Programming"
 // Wraps all public functions with the acquiring of a global mutex
 template <typename T> class HashSetCoarseGrained : public HashSetBase<T> {
   using Bucket = std::vector<T>;
@@ -27,17 +27,21 @@ public:
   // Using a scoped lock ensures only one thread is modifying the buckets
   // at any time and automatically unlocks at the end of the function's scope
   bool Add(T elem) override {
+    // Lock is acquired on creation and released at end of scope
     std::scoped_lock<std::mutex> lock(mutex_);
 
+    // Resize if needed
     if (Policy()) {
       Resize();
     }
 
+    // Early return if element already exists
     Bucket *bucket = &GetBucket(elem);
     if (GetIndex(*bucket, elem) != bucket->end()) {
       return false;
     }
 
+    // Insert the element, updating size
     bucket->push_back(elem);
     ++size_;
     return true;
@@ -46,11 +50,13 @@ public:
   // Using a scoped lock ensures only one thread is modifying the buckets
   // at any time and automatically unlocks at the end of the function's scope
   bool Remove(T elem) override {
+    // Lock is acquired on creation and released at end of scope
     std::scoped_lock<std::mutex> lock(mutex_);
 
     Bucket &bucket = GetBucket(elem);
     auto it = GetIndex(bucket, elem);
     if (it != bucket.end()) {
+      // Remove the element if found, updating size
       bucket.erase(it);
       --size_;
       return true;
@@ -61,6 +67,7 @@ public:
   // Using a scoped lock ensures only one thread is modifying the buckets
   // at any time and automatically unlocks at the end of the function's scope
   bool Contains(T elem) override {
+    // Lock is acquired on creation and released at end of scope
     std::scoped_lock<std::mutex> lock(mutex_);
     auto &bucket = GetBucket(elem);
     return GetIndex(bucket, elem) != bucket.end();
@@ -74,20 +81,22 @@ public:
   }
 
 private:
+  // Current number of elements in the hash set
   size_t size_ = 0;
+  // Global mutex protecting all operations on the hash set
   mutable std::mutex mutex_;
   std::vector<Bucket> buckets_;
 
   // Heuristic for determining if an addition would exceed the resize threshold
   // Value is calculated as: number of elements / number of buckets
-  // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING
+  // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING (Ensure lock acquired)
   bool Policy() const {
     return kResizeThreshold < static_cast<double>(size_ + 1) /
                                   static_cast<double>(buckets_.size());
   }
 
   // Resizes the bucket array by increasing its size and rehashing all elements
-  // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING
+  // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING (Ensure lock acquired)
   void Resize() {
     // Double the size of buckets
     size_t new_size = buckets_.size() * kCountResize;
@@ -104,7 +113,7 @@ private:
   }
 
   // Returns the bucket corresponding to the given element
-  // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING
+  // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING (Ensure lock acquired)
   Bucket &GetBucket(const T &elem) {
     return buckets_[std::hash<T>()(elem) % buckets_.size()];
   }

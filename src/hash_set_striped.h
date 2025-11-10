@@ -32,7 +32,7 @@ public:
   // Using a scoped lock on the bucket's (mod initial bucket count) mutex
   // The lock is automatically released at the end of the function's scope.
   bool Add(T elem) override {
-    // Resize if needed (checked lock to prevent nested locking)
+    // Resize if needed (before locking to prevent nested locking)
     if (Policy()) {
       Resize();
     }
@@ -99,7 +99,7 @@ private:
   // Value is calculated as: number of elements / number of buckets
   // SAFE TO CALL WITHOUT EXTERNAL LOCKING (size_ and bucket_count_ are atomic)
   bool Policy() const {
-    return static_cast<double>(size_.load(std::memory_order_relaxed)) /
+    return static_cast<double>(size_.load(std::memory_order_relaxed) + 1) /
                static_cast<double>(
                    bucket_count_.load(std::memory_order_relaxed)) >
            kResizeThreshold;
@@ -120,7 +120,7 @@ private:
       locks.emplace_back(mutex);
     }
 
-    // Check if a resize has occurred after getting locks avoids double resizes
+    // Check if a resize has occurred with all locks to avoid double resizes
     // Caused by another add occurring before the previous resize affects policy
     // Direct .size() call is ok as we have all locks
     if (buckets_.size() != pre_bucket_count) {

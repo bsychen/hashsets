@@ -27,7 +27,7 @@ template <typename T> class HashSetRefinable : public HashSetBase<T> {
   
   // Average number of elements per bucket before resizing
   static constexpr double kResizeThreshold = 0.75;
-
+  
   // Factor to increase bucket count by during resize
   static constexpr size_t kCountResize = 2;
 
@@ -78,7 +78,6 @@ public:
       size_.fetch_sub(1, std::memory_order_relaxed);
       return true;
     }
-    
     return false;
   }
 

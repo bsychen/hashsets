@@ -24,8 +24,10 @@ struct IndexedLock {
 // RAII adds simplicity avoiding need for try / finally.
 template <typename T> class HashSetRefinable : public HashSetBase<T> {
   using Bucket = std::vector<T>;
+  
   // Average number of elements per bucket before resizing
   static constexpr double kResizeThreshold = 0.75;
+
   // Factor to increase bucket count by during resize
   static constexpr size_t kCountResize = 2;
 
@@ -76,6 +78,7 @@ public:
       size_.fetch_sub(1, std::memory_order_relaxed);
       return true;
     }
+    
     return false;
   }
 
@@ -94,20 +97,23 @@ public:
 private:
   // Atomic snapshot for the number of elements in the set
   std::atomic<size_t> size_{0};
+  
   // Atomic snapshot for the number of buckets (for policy which does not lock)
   std::atomic<size_t> bucket_count_{0};
+
   // Atomic flag for if a resize is occurring (stop new operations starting)
   // Deviated from "Art of Multiprocessor Programming" which stored a thread ID 
   //   too which is unneeded as that is only required for reentrant locks
   std::atomic<bool> resizing_{false};
+
   // Atomic counter incremented on each resize (to avoid concurrent resizes)
   std::atomic<size_t> resize_counter_{0};
 
-  std::shared_ptr<std::vector<Bucket>> buckets_;
   // One lock per bucket as per "Art of Multiprocessor Programming"
   // Allows finer grained locking during normal operations
   // Modified each resize to match bucket count (shared ptr avoids early frees)
   // Uses normal mutexes over reentrant locks as reentrancy is not desired
+  std::shared_ptr<std::vector<Bucket>> buckets_;
   std::shared_ptr<std::vector<std::mutex>> locks_;
 
   // Heuristic for determining if an addition would exceed the resize threshold
@@ -115,8 +121,7 @@ private:
   // SAFE TO CALL WITHOUT EXTERNAL LOCKING (size_ and bucket_count_ are atomic)
   bool Policy() const {
     return static_cast<double>(size_.load(std::memory_order_relaxed) + 1) /
-               static_cast<double>(
-                   bucket_count_.load(std::memory_order_relaxed)) >
+           static_cast<double>(bucket_count_.load(std::memory_order_relaxed)) >
            kResizeThreshold;
   }
 
@@ -160,6 +165,7 @@ private:
     for (;;) { 
       // Check if all locks are free
       bool all_free = true;
+      
       // by invariants locks_ are safe for loops if Quiesce is running
       // as resize has been set and this resize is running Quiesce
       for (auto &m : *locks_) {

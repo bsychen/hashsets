@@ -125,8 +125,8 @@ private:
   }
 
   void Resize() {
-    if (!resizing_.compare_exchange_strong(false, true,
-                                           std::memory_order_acq_rel)) {
+    bool exchange = false;
+    if (!resizing_.compare_exchange_strong(exchange, true, std::memory_order_acq_rel)) {
       return;
     }
 
@@ -157,8 +157,7 @@ private:
     resizing_.store(false, std::memory_order_release);
   }
 
-  typename Bucket::const_iterator GetIndex(const Bucket &list,
-                                           const T &item) const {
+  static auto GetIndex(const Bucket &list, const T &item) {
     return std::find(list.begin(), list.end(), item);
   }
 };

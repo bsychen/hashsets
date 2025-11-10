@@ -8,11 +8,12 @@
 
 #include "src/hash_set_base.h"
 
-const size_t kResizeThreshold = 3;
-const size_t kCountResize = 2;
-
 template <typename T> class HashSetSequential : public HashSetBase<T> {
   using Bucket = std::vector<T>;
+  // Average number of elements per bucket before resizing (4 as per book)
+  static constexpr size_t kResizeThreshold = 4;
+  // Factor to increase bucket count by during resize
+  static constexpr size_t kCountResize = 2;
 
 public:
   explicit HashSetSequential(size_t initial_buckets = 16) {

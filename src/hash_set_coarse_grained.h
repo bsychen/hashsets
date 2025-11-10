@@ -13,7 +13,9 @@
 // Wraps all public functions with the acquiring of a global mutex
 template <typename T> class HashSetCoarseGrained : public HashSetBase<T> {
   using Bucket = std::vector<T>;
+  // Average number of elements per bucket before resizing
   static constexpr double kResizeThreshold = 0.75;
+  // Factor to increase bucket count by during resize
   static constexpr size_t kCountResize = 2;
 
 public:
@@ -22,7 +24,7 @@ public:
     buckets_ = std::vector<Bucket>(initial_buckets, Bucket());
   }
 
-  // Using a scoped lock ensures only one thread is modifying the buckets 
+  // Using a scoped lock ensures only one thread is modifying the buckets
   // at any time and automatically unlocks at the end of the function's scope
   bool Add(T elem) override {
     std::scoped_lock<std::mutex> lock(mutex_);
@@ -41,7 +43,7 @@ public:
     return true;
   }
 
-  // Using a scoped lock ensures only one thread is modifying the buckets 
+  // Using a scoped lock ensures only one thread is modifying the buckets
   // at any time and automatically unlocks at the end of the function's scope
   bool Remove(T elem) override {
     std::scoped_lock<std::mutex> lock(mutex_);
@@ -56,7 +58,7 @@ public:
     return false;
   }
 
-  // Using a scoped lock ensures only one thread is modifying the buckets 
+  // Using a scoped lock ensures only one thread is modifying the buckets
   // at any time and automatically unlocks at the end of the function's scope
   bool Contains(T elem) override {
     std::scoped_lock<std::mutex> lock(mutex_);
@@ -64,7 +66,7 @@ public:
     return GetIndex(bucket, elem) != bucket.end();
   }
 
-  // Using a scoped lock ensures no other thread is modifying the buckets at  
+  // Using a scoped lock ensures no other thread is modifying the buckets at
   // this time and automatically unlocks at the end of the function's scope
   size_t Size() const override {
     std::scoped_lock<std::mutex> lock(mutex_);
@@ -76,14 +78,14 @@ private:
   mutable std::mutex mutex_;
   std::vector<Bucket> buckets_;
 
-  // Returns if an addition would exceed the resize threshold
+  // Heuristic for determining if an addition would exceed the resize threshold
   // Value is calculated as: number of elements / number of buckets
   // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING
   bool Policy() const {
     return kResizeThreshold < static_cast<double>(size_ + 1) /
                                   static_cast<double>(buckets_.size());
   }
-  
+
   // Resizes the bucket array by increasing its size and rehashing all elements
   // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING
   void Resize() {
@@ -107,8 +109,9 @@ private:
     return buckets_[std::hash<T>()(elem) % buckets_.size()];
   }
 
-  typename Bucket::const_iterator GetIndex(const Bucket &list,
-                                           const T &item) const {
+  // Returns the index of an element in a bucket (list.end() if not found)
+  // UNSAFE TO CALL WITHOUT EXTERNAL LOCKING (Ensure lock acquired)
+  static auto GetIndex(const Bucket &list, const T &item) {
     return std::find(list.begin(), list.end(), item);
   }
 };

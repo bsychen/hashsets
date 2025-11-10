@@ -155,7 +155,7 @@ private:
   }
 
   // Waits until no locks are held by any thread
-  // MUST CALL WITHOUT EXTERNAL LOCKING (obvious deadlock if any locks held)
+  // MUST CALL WITHOUT EXTERNAL LOCKING (obvious deadlock if a bucket lock held)
   void Quiesce() {
     for (;;) { 
       // Check if all locks are free
@@ -179,16 +179,21 @@ private:
 
   // Resizes the bucket array by increasing its size and rehashing all elements
   // Resizes the locks_ array too to match new bucket count (as per book)
-  // MUST CALL WITHOUT EXTERNAL LOCKING (obvious deadlock if any locks held)
+  // MUST CALL WITHOUT EXTERNAL LOCKING (obvious deadlock if a bucket lock held)
   void Resize() {
+    // Snapshot current bucket count
+    size_t pre_bucket_count = bucket_count_.load(std::memory_order_relaxed);
+    
     // Early return if another resize is occurring
     bool exchange = false;
     if (!resizing_.compare_exchange_strong(exchange, true, std::memory_order_acq_rel)) {
       return;
     }
 
-    // Check if resize is needed now resize flag is set
-    if (!Policy()) {
+    // Check if a resize has occurred now we have resizing avoids double resizes
+    // Caused by another add occurring before the previous resize affects policy
+    // Direct .size() call is ok as we have resizing 
+    if ((*buckets_).size() != pre_bucket_count) {
       resizing_.store(false, std::memory_order_release);
       return;
     }
